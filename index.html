@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<title>Bin Man UK — Sefton (L22/L23)</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0e1116">
+<style>
+  html, body { margin:0; height:100%; background:#0e1116; color:#eaeef7; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #renderCanvas { width:100vw; height:100vh; display:block; touch-action:none; }
+  .top { position: fixed; top: 8px; left: 8px; right: 8px; display:flex; gap:8px; align-items:center; justify-content:space-between; z-index:3; }
+  .panel { background: rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.15); border-radius:12px; padding:8px 12px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .badge { padding:3px 6px; border-radius:8px; background:#16202c; border:1px solid rgba(255,255,255,0.15); font-size:12px; }
+  .btn { padding:6px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.35); color:#eaeef7; }
+  .ticker { position: fixed; top: 80px; right: 12px; width: 320px; max-width: 60vw; z-index:3; }
+  .tick { margin: 6px 0; background: rgba(0,0,0,0.45); border-left: 4px solid #4cd964; padding: 6px 10px; border-radius: 8px; font-size: 13px; }
+  .minimap { position: fixed; bottom: 12px; right: 12px; width: 160px; height: 160px; background: rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.15); border-radius:12px; z-index:2; }
+  .overlay { position: fixed; inset:0; display:flex; align-items:center; justify-content:center; background:#0d1117; z-index:10; }
+  .card { background:#141922; border:1px solid rgba(255,255,255,0.15); border-radius:16px; padding:16px; width:min(860px,95vw); }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
+  .select, .input { width:100%; padding:8px; border-radius:8px; background:#0f141b; color:#eaeef7; border:1px solid rgba(255,255,255,0.15); }
+  .bigbtn { padding:10px 14px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#2f8fcc; color:white; font-weight:700; }
+  .label { font-size:12px; opacity:0.85; margin-bottom:6px; }
+  .end { position: fixed; inset:0; display:none; align-items:center; justify-content:center; background: rgba(0,0,0,0.7); z-index:9; }
+</style>
+</head>
+<body>
+<canvas id="renderCanvas"></canvas>
+
+<div class="top">
+  <div class="panel">
+    <div class="row">
+      <span class="badge">Sefton</span>
+      <span id="routeBadge" class="badge">L23</span>
+      <span class="badge">£ <span id="coins">0</span></span>
+      <span>Today:</span>
+      <span id="todayText" class="badge"></span>
+      <button id="btnShop" class="btn">£ Upgrades</button>
+      <button id="btnOptions" class="btn">⚙ Options</button>
+      <button id="btnPWA" class="btn">⬇ Install</button>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="row">
+      <span>Bins:</span><b id="binsCount">0/0</b>
+      <span>Load:</span><b id="loadCount">0/8</b>
+      <span>Score:</span><b id="scoreVal">0</b>
+      <span>Time:</span><b id="timeVal">0:00</b>
+    </div>
+  </div>
+</div>
+
+<div id="ticker" class="ticker"></div>
+<canvas id="minimap" class="minimap"></canvas>
+
+<!-- Overlay: setup & route selector -->
+<div id="setup" class="overlay">
+  <div class="card">
+    <h2>Bin Man UK — Sefton Routes</h2>
+    <div class="grid">
+      <div>
+        <div class="label">Route</div>
+        <select id="routeSel" class="select">
+          <option value="L23">L23 — Blundellsands/Crosby</option>
+          <option value="L22">L22 — Waterloo</option>
+        </select>
+      </div>
+      <div>
+        <div class="label">Week</div>
+        <select id="weekSel" class="select"><option>A</option><option>B</option></select>
+      </div>
+      <div>
+        <div class="label">Month</div>
+        <select id="monthSel" class="select">
+          <option value="1">Jan</option><option value="2">Feb</option><option value="3">Mar</option>
+          <option value="4">Apr</option><option value="5">May</option><option value="6">Jun</option>
+          <option value="7">Jul</option><option value="8">Aug</option><option value="9">Sep</option>
+          <option value="10">Oct</option><option value="11">Nov</option><option value="12">Dec</option>
+        </select>
+      </div>
+      <div>
+        <div class="label">GeoJSON (optional): load OSM streets</div>
+        <input type="file" id="geoFile" class="input" accept=".json,.geojson"/>
+      </div>
+    </div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+      <button id="btnStart" class="bigbtn">Start Route</button>
+    </div>
+    <p style="font-size:12px;opacity:.8;margin-top:8px;">Tip: You can export L22/L23 street GeoJSON from OpenStreetMap (Overpass) and drop it here. We’ll render roads/buildings for higher realism. © OpenStreetMap contributors.</p>
+  </div>
+</div>
+
+<!-- End card -->
+<div id="end" class="end">
+  <div class="card">
+    <h3>Route Complete</h3>
+    <div>Correct: <b id="sCorrect">0</b> · Wrong: <b id="sWrong">0</b> · Fines: <b id="sFines">0</b></div>
+    <div>Time: <b id="sTime">0:00</b> · Score: <b id="sScore">0</b> · Grade: <b id="sGrade">Bronze</b></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
+      <button onclick="location.reload()" class="btn">Restart</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Service worker register
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js'); }
+
+// Minimal PWA install prompt
+const btnPWA = document.getElementById('btnPWA');
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; btnPWA.style.display='inline-block'; });
+btnPWA.addEventListener('click', async () => { if (!deferredPrompt) return; deferredPrompt.prompt(); deferredPrompt = null; });
+
+</script>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script>
+(() => {
+// ---- Schedules (Sefton) ----
+const BIN_COLOURS = { brown:'#8a5a2b', grey:'#3a3a3a', green:'#2fa14f' };
+const TYPES = { brown:'Recycling', grey:'General', green:'Garden' };
+function seftonToday(week, month){
+  const seasonal = m => (m>=3 && m<=11);
+  const arr = []; if (week==='A') arr.push('brown'); else arr.push('grey'); if (seasonal(month)) arr.push('green'); return arr;
+}
+
+// ---- Saves & upgrades ----
+const defSave = { coins:0, upgrades:{ capacity:0, engine:0, crew:0, horn:0, rain:0 }, skin:0 };
+let save = JSON.parse(localStorage.getItem('bm_save')||JSON.stringify(defSave));
+function commit(){ localStorage.setItem('bm_save', JSON.stringify(save)); }
+
+// ---- UI refs ----
+const setup = document.getElementById('setup');
+const routeSel = document.getElementById('routeSel');
+const weekSel = document.getElementById('weekSel');
+const monthSel = document.getElementById('monthSel');
+const geoFile = document.getElementById('geoFile');
+const coinsEl = document.getElementById('coins');
+const routeBadge = document.getElementById('routeBadge');
+const todayText = document.getElementById('todayText');
+const binsCount = document.getElementById('binsCount');
+const loadCount = document.getElementById('loadCount');
+const scoreVal = document.getElementById('scoreVal');
+const timeVal = document.getElementById('timeVal');
+const endEl = document.getElementById('end');
+const sCorrect = document.getElementById('sCorrect');
+const sWrong = document.getElementById('sWrong');
+const sFines = document.getElementById('sFines');
+const sTime = document.getElementById('sTime');
+const sScore = document.getElementById('sScore');
+const sGrade = document.getElementById('sGrade');
+const ticker = document.getElementById('ticker');
+const minimap = document.getElementById('minimap'); const mctx = minimap.getContext('2d');
+
+coinsEl.textContent = save.coins;
+
+// ---- Build label text
+function setTodayLabel(arr){ todayText.textContent = arr.map(c=>TYPES[c]).join(' + '); todayText.style.background = BIN_COLOURS[arr[0]]; todayText.style.borderColor='rgba(255,255,255,0.25)'; }
+
+// ---- Start button
+document.getElementById('btnStart').onclick = async () => {
+  const week = weekSel.value; const month = parseInt(monthSel.value,10);
+  const todays = seftonToday(week, month);
+  setTodayLabel(todays);
+  routeBadge.textContent = routeSel.value;
+  setup.style.display='none';
+  let geo = null;
+  if (geoFile.files && geoFile.files[0]){
+    try { const txt = await geoFile.files[0].text(); geo = JSON.parse(txt); } catch(e){ console.warn(e); }
+  }
+  startGame(routeSel.value, todays, geo);
+};
+
+// ---- Ticker helper
+function tick(msg, good=true){
+  const el = document.createElement('div'); el.className='tick'; if (!good) el.style.borderLeftColor='#ff6565'; el.innerHTML = msg;
+  ticker.prepend(el); setTimeout(()=>el.remove(), 3500);
+}
+
+// ---- Game start
+function startGame(route, todays, geo){
+  const canvas = document.getElementById('renderCanvas');
+  const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer:true, stencil:true });
+  const scene = new BABYLON.Scene(engine);
+  scene.clearColor = new BABYLON.Color4(0.05,0.07,0.1,1);
+  const hemi = new BABYLON.HemisphericLight('h', new BABYLON.Vector3(0,1,0), scene); hemi.intensity=0.85;
+  const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-0.4,-1,0.3), scene); sun.intensity=0.7;
+  scene.fogMode = BABYLON.Scene.FOGMODE_EXP2; scene.fogDensity = 0.01; scene.fogColor = new BABYLON.Color3(0.1,0.12,0.14);
+
+  const camera = new BABYLON.FollowCamera('cam', new BABYLON.Vector3(0,35,-20), scene);
+  camera.radius = 28; camera.heightOffset = 24; camera.cameraAcceleration = 0.05; camera.maxCameraSpeed = 4;
+
+  // Materials
+  const mGrass = new BABYLON.StandardMaterial('grass', scene); mGrass.diffuseColor = new BABYLON.Color3(0.16,0.28,0.16);
+  const mRoad = new BABYLON.StandardMaterial('road', scene); mRoad.diffuseColor = new BABYLON.Color3(0.12,0.12,0.13);
+  const mPav = new BABYLON.StandardMaterial('pav', scene); mPav.diffuseColor = new BABYLON.Color3(0.32,0.34,0.38);
+  const mLine = new BABYLON.StandardMaterial('line', scene); mLine.emissiveColor = new BABYLON.Color3(0.95,0.9,0.2);
+  const mDepot = new BABYLON.StandardMaterial('depot', scene); mDepot.diffuseColor = new BABYLON.Color3(0.25,0.33,0.36);
+
+  // Ground
+  BABYLON.MeshBuilder.CreateGround('g', {width:220, height:220}, scene).material = mGrass;
+  const rect = (w,h,y,mat,x=0,z=0) => { const m = BABYLON.MeshBuilder.CreateGround('r',{width:w,height:h}, scene); m.position.set(x,y,z); m.material=mat; return m; };
+
+  // Layouts
+  function layoutL23(){
+    rect(14, 180, 0.01, mRoad, -20, 10); rect(70, 14, 0.01, mRoad, 10, -30); rect(70, 14, 0.01, mRoad, 10, 50);
+    rect(18, 180, 0.02, mPav, -20, 10); rect(74, 18, 0.02, mPav, 10, -30); rect(74, 18, 0.02, mPav, 10, 50);
+    const mid = BABYLON.MeshBuilder.CreateGround('line1',{width:0.3,height:180}, scene); mid.position.set(-20,0.03,10); mid.material=mLine;
+  }
+  function layoutL22(){
+    rect(14, 160, 0.01, mRoad, 0, 0); rect(14, 100, 0.01, mRoad, 40, -20); rect(60, 14, 0.01, mRoad, 20, 30);
+    rect(18, 160, 0.02, mPav, 0, 0); rect(18, 100, 0.02, mPav, 40, -20); rect(64, 18, 0.02, mPav, 20, 30);
+    const mid = BABYLON.MeshBuilder.CreateGround('line2',{width:0.3,height:160}, scene); mid.position.set(0,0.03,0); mid.material=mLine;
+  }
+
+  // Optional: render GeoJSON roads if provided
+  function renderGeoJSON(gj){
+    try {
+      const feats = gj.type==='FeatureCollection' ? gj.features : [];
+      feats.forEach(f=>{
+        const g = f.geometry || {}; if (!g) return;
+        if (g.type==='LineString'){
+          const pts = g.coordinates.map(([lon,lat])=> new BABYLON.Vector3((lon%0.01)*10000, 0.011, (lat%0.01)*-10000));
+          // Simple polyline as thin ground strips
+          for (let i=0;i<pts.length-1;i++){
+            const a=pts[i], b=pts[i+1]; const dx=b.x-a.x, dz=b.z-a.z; const len=Math.hypot(dx,dz);
+            const seg = BABYLON.MeshBuilder.CreateGround('seg',{width:4,height:len}, scene); seg.position.copyFrom(a.add(b).scale(0.5)); seg.position.y=0.011;
+            const ang = Math.atan2(dx, dz); seg.rotation.y = ang; seg.material = mRoad;
+          }
+        }
+      });
+      tick("OSM streets loaded (geojson)", true);
+    } catch(e){ console.warn(e); tick("GeoJSON failed to render", false); }
+  }
+
+  if (geo) renderGeoJSON(geo); else (route==='L23'?layoutL23():layoutL22());
+
+  // Depot
+  rect(24, 16, 0.02, mDepot, -60, 70);
+
+  // Truck
+  const truck = BABYLON.MeshBuilder.CreateBox('truck',{width:2.6, height:1.6, depth:4.0}, scene);
+  truck.position.set(-20, 0.85, -60);
+  const mTruck = new BABYLON.StandardMaterial('tm', scene);
+  mTruck.diffuseColor = new BABYLON.Color3(0.2,0.6,0.9); truck.material = mTruck;
+  camera.lockedTarget = truck;
+
+  // Upgrades
+  const TRUCK = { capacity: 8 + 2*(save.upgrades.capacity||0), accel: 12*(1+0.1*(save.upgrades.engine||0)), maxSpeed: 12*(1+0.05*(save.upgrades.engine||0)), turnRate: 2.2, brake: 20, drag:1.2 };
+  let vel=0, score=0, correct=0, wrong=0, fines=0, load=0, streak=0; const startTime = Date.now();
+
+  // Bins & house numbers
+  const bins=[];
+  const houses = route==='L23' ?
+    [{x:-26,z:-20,n:12},{x:-14,z:-12,n:14},{x:-26,z:-4,n:16},{x:-14,z:4,n:18},{x:-26,z:12,n:20},{x:-14,z:20,n:22},{x:-26,z:28,n:24},{x:-14,z:36,n:26}] :
+    [{x:2,z:-30,n:101},{x:-2,z:-10,n:103},{x:2,z:10,n:105},{x:-2,z:30,n:107},{x:40,z:-10,n:5},{x:40,z:10,n:7},{x:40,z:30,n:9}];
+
+  function makeBin(x,z,colour,label){
+    const body = BABYLON.MeshBuilder.CreateBox('bin',{width:0.8,height:1.2,depth:0.8},scene); body.position.set(x,0.6,z);
+    const m = new BABYLON.StandardMaterial('bm',scene); m.diffuseColor = BABYLON.Color3.FromHexString(BIN_COLOURS[colour]); body.material = m;
+    // label
+    const tag = BABYLON.Mesh.CreatePlane('tag', 0.6, scene); tag.position = new BABYLON.Vector3(x,1.6,z); tag.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+    const tm = new BABYLON.StandardMaterial('tmx',scene); tag.material=tm; tm.backFaceCulling=false;
+    const tex = new BABYLON.DynamicTexture('dt',{width:128,height:128},scene,false); tm.diffuseTexture=tex; tm.emissiveTexture=tex;
+    const ctx = tex.getContext(); ctx.clearRect(0,0,128,128); ctx.fillStyle='#fff'; ctx.font='bold 48px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(String(label||''),64,64); tex.update();
+    bins.push({mesh:body, colour, n:label, collected:false});
+  }
+
+  // Generate today's bins + a few wrong-colour traps
+  const placements = houses;
+  placements.forEach(h=>{
+    let colour = todays[(Math.random()*todays.length)|0];
+    if (Math.random()<0.25){ const others = ['brown','grey','green'].filter(c=> !todays.includes(c)); if (others.length) colour=others[(Math.random()*others.length)|0]; }
+    makeBin(h.x,h.z,colour,h.n);
+  });
+
+  const totalTarget = bins.filter(b=> todays.includes(b.colour)).length;
+  binsCount.textContent = `0/${totalTarget}`; loadCount.textContent = `0/${TRUCK.capacity}`;
+
+  // Missed-bin callouts (dynamic)
+  const calls = []; function addCall(houseNum){ calls.push(houseNum); tick(`Missed bin reported at #${houseNum} — bonus if collected`, true); }
+  if (houses.length>2){ addCall(houses[1].n); addCall(houses[houses.length-2].n); }
+
+  // Input
+  const input = { f:0, t:0, load:false, dump:false, horn:false };
+  addEventListener('keydown', e=>{ if (e.key==='w'||e.key==='ArrowUp') input.f=1; if (e.key==='s'||e.key==='ArrowDown') input.f=-1; if (e.key==='a'||e.key==='ArrowLeft') input.t=-1; if (e.key==='d'||e.key==='ArrowRight') input.t=1; if (e.key===' ') input.load=true; if (e.key==='Shift') input.dump=true; });
+  addEventListener('keyup', e=>{ if (e.key==='w'||e.key==='ArrowUp') if(input.f===1) input.f=0; if (e.key==='s'||e.key==='ArrowDown') if(input.f===-1) input.f=0; if (e.key==='a'||e.key==='ArrowLeft') if(input.t===-1) input.t=0; if (e.key==='d'||e.key==='ArrowRight') if(input.t===1) input.t=0; });
+
+  // Minimap
+  function drawMini(){
+    const W=minimap.width,H=minimap.height; mctx.clearRect(0,0,W,H); mctx.fillStyle='rgba(0,0,0,0.2)'; mctx.fillRect(0,0,W,H);
+    function mapX(x){ return (x+80)/160 * (W-10)+5; } function mapZ(z){ return (z+80)/160 * (H-10)+5; }
+    bins.forEach(b=>{ if(b.collected) return; mctx.fillStyle = BIN_COLOURS[b.colour]; mctx.fillRect(mapX(b.mesh.position.x)-2, mapZ(b.mesh.position.z)-2, 4,4); });
+    mctx.fillStyle='#6aa6b8'; mctx.fillRect(mapX(-60)-4, mapZ(70)-4, 8,8);
+    mctx.fillStyle='#fff'; mctx.beginPath(); mctx.arc(mapX(truck.position.x), mapZ(truck.position.z), 3, 0, 2*Math.PI); mctx.fill();
+  }
+
+  function updateTop(){ scoreVal.textContent=score; binsCount.textContent=`${correct}/${totalTarget}`; loadCount.textContent=`${load}/${TRUCK.capacity}`; const ms=Date.now()-startTime; const s=(ms/1000|0)%60; const m=(ms/60000|0); timeVal.textContent=`${m}:${String(s).padStart(2,'0')}`; }
+
+  // Loop
+  scene.onBeforeRenderObservable.add(()=>{
+    const dt = engine.getDeltaTime()/1000;
+    // driving
+    if (input.f>0) vel += TRUCK.accel*dt; else if (input.f<0) vel -= TRUCK.brake*dt; else vel -= Math.sign(vel)*TRUCK.drag*dt;
+    vel = Math.max(-TRUCK.maxSpeed*0.4, Math.min(TRUCK.maxSpeed, vel));
+    truck.rotation.y += input.t * TRUCK.turnRate * dt * (0.6 + 0.4*Math.min(Math.abs(vel)/TRUCK.maxSpeed,1));
+    const forward = new BABYLON.Vector3(Math.sin(truck.rotation.y),0,Math.cos(truck.rotation.y)); truck.position.addInPlace(forward.scale(-vel*dt));
+    camera.lockedTarget = truck;
+
+    // nearest bin
+    let near=null, nd=99; bins.forEach(b=>{ if(b.collected) return; const d=BABYLON.Vector3.Distance(truck.position,b.mesh.position); if(d<nd){ nd=d; near=b; } b.mesh.renderOutline=false; });
+    if (near && nd<3.6) near.mesh.renderOutline=true;
+
+    // load
+    if (near && nd<3.2 && input.load){
+      if (todays.includes(near.colour)){
+        if (load < TRUCK.capacity){
+          near.collected=true; near.mesh.setEnabled(false);
+          correct++; score += 10; load++; streak++;
+          if (calls.includes(near.n)){ score += 10; tick(`Missed bin #${near.n} resolved +£10`); }
+        } else tick('Truck full — dump at depot', false);
+      } else { wrong++; fines += 30; score -= 30; streak=0; tick('Wrong bin -£30', false); }
+      input.load=false;
+    }
+
+    // depot
+    const inDepot = (Math.abs(truck.position.x + 60) < 12 && Math.abs(truck.position.z - 70) < 10);
+    if (inDepot && (input.dump || load>=TRUCK.capacity)){ if (load>0){ tick(`Unloaded ${load} bins at depot`); load=0; } input.dump=false; }
+
+    // end
+    drawMini(); updateTop();
+    if (bins.filter(b=>!b.collected && todays.includes(b.colour)).length===0){
+      const ms = Date.now()-startTime; const timeBonus = Math.max(0, Math.floor((600000 - ms)/60000)*3);
+      const earned = Math.max(0, score) + timeBonus; save.coins += earned; commit(); coinsEl.textContent = save.coins;
+      document.getElementById('sCorrect').textContent = correct;
+      document.getElementById('sWrong').textContent = wrong;
+      document.getElementById('sFines').textContent = fines;
+      document.getElementById('sTime').textContent = `${(ms/60000|0)}:${String((ms/1000|0)%60).padStart(2,'0')}`;
+      document.getElementById('sScore').textContent = `${score} (+£${timeBonus})`;
+      document.getElementById('sGrade').textContent = (score>=140)?'Gold':(score>=90)?'Silver':'Bronze';
+      endEl.style.display='flex';
+      scene.onBeforeRenderObservable.clear();
+    }
+  });
+
+  engine.runRenderLoop(()=> scene.render());
+  addEventListener('resize', ()=> engine.resize());
+}
+
+})();</script>
+</body>
+</html>
